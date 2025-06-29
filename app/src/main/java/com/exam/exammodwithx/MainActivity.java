@@ -87,7 +87,7 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onValid() {
                         // lanjut polling berikutnya
-                        keyPollingHandler.postDelayed(this, POLLING_INTERVAL);
+                        keyPollingHandler.postDelayed(keyPollingRunnable, POLLING_INTERVAL);
                     }
                     @Override
                     public void onInvalid() {
@@ -100,7 +100,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                     @Override
                     public void onError(Exception e) {
-                        keyPollingHandler.postDelayed(this, POLLING_INTERVAL);
+                        keyPollingHandler.postDelayed(keyPollingRunnable, POLLING_INTERVAL);
                     }
                 });
             }
