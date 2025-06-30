@@ -6,6 +6,33 @@
      android:gravity="center"
      android:orientation="vertical">
 
+    <!-- Tambahan Android ID -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp">
+
+        <TextView
+            android:id="@+id/androidIdTextView"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Android ID: -"
+            android:textIsSelectable="true"
+            android:textAppearance="?attr/textAppearanceBody2"
+            android:paddingEnd="8dp"
+            android:ellipsize="end"
+            android:maxLines="1"/>
+
+        <Button
+            android:id="@+id/copyAndroidIdBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Salin"/>
+    </LinearLayout>
+    <!-- Akhir Tambahan -->
+
     <ImageView
          android:layout_height="100.0dip"
          android:layout_width="100.0dip"
