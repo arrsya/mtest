@@ -1,12 +1,16 @@
 package com.exam.exammodwithx;
 
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.Toast;
@@ -22,16 +26,70 @@ public class MainActivity extends AppCompatActivity {
     private ActivityMainBinding binding;
     private SharedPreferences sharedPreferences;
 
-    // Untuk polling key dari GitHub secara periodik
     private Handler keyPollingHandler;
     private Runnable keyPollingRunnable;
     private static final long POLLING_INTERVAL = 60 * 1000; // 1 menit
 
+    private String androidId;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        androidId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
 
-        // Cek key dulu, baru boleh lanjut
+        // Layout harus di-set lebih awal supaya bisa akses binding.androidIdTextView/copyAndroidIdBtn
+        binding = ActivityMainBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
+
+        // Tampilkan Android ID dan tombol salin di semua kondisi
+        binding.androidIdTextView.setText("Android ID: " + androidId);
+        binding.copyAndroidIdBtn.setOnClickListener(v -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText("Android ID", androidId);
+            clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, "Android ID disalin ke clipboard", Toast.LENGTH_SHORT).show();
+        });
+
+        // Cek apakah device terdaftar sebelum cek key!
+        KeyAuthManager.checkDeviceAllowed(androidId, new KeyAuthManager.DeviceCheckCallback() {
+            @Override
+            public void onAllowed() {
+                // Device terdaftar, lanjut cek key
+                checkKeyAndContinue();
+            }
+
+            @Override
+            public void onBlocked() {
+                // Device tidak terdaftar, tampilkan info dan blok akses
+                showBlockedDeviceDialog();
+            }
+
+            @Override
+            public void onError(Exception e) {
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Error Device Check")
+                        .setMessage("Tidak bisa cek status device. Silakan cek koneksi internet atau hubungi admin.\n\nError: " + e.getMessage())
+                        .setPositiveButton("Keluar", (d, w) -> finish())
+                        .setCancelable(false)
+                        .show();
+            }
+        });
+    }
+
+    private void showBlockedDeviceDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("Akses Ditolak")
+                .setMessage("Device ini tidak terdaftar di sistem.\nAndroid ID: " + androidId + "\n\nSilakan hubungi admin jika ingin menambahkan device.\n\n(Android ID juga bisa disalin dengan tombol di atas)")
+                .setPositiveButton("Keluar", (d, w) -> finish())
+                .setCancelable(false)
+                .show();
+        // Semua fitur lain tetap disable. Tidak lanjut cek key, tidak munculkan tombol masuk, dll.
+        binding.masukBtn.setEnabled(false);
+        binding.urlEditText.setEnabled(false);
+        binding.logoView.setEnabled(false);
+    }
+
+    private void checkKeyAndContinue() {
         KeyAuthManager.checkKey(this, new KeyAuthManager.KeyCheckCallback() {
             @Override
             public void onValid() {
@@ -52,7 +110,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onError(Exception e) {
                 new AlertDialog.Builder(MainActivity.this)
-                        .setTitle("Error")
+                        .setTitle("Error Key Check")
                         .setMessage("Tidak dapat cek key: " + e.getMessage())
                         .setPositiveButton("Coba Lagi", (d, w) -> recreate())
                         .setNegativeButton("Keluar", (d, w) -> finish())
@@ -62,19 +120,27 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // Cek key juga setiap aplikasi di-foreground
     @Override
     protected void onResume() {
         super.onResume();
-        KeyAuthManager.checkKey(this, new KeyAuthManager.KeyCheckCallback() {
-            @Override public void onValid() {}
-            @Override public void onInvalid() { showKeyDialog(false); }
-            @Override public void onNeedInput() { showKeyDialog(true); }
-            @Override public void onError(Exception e) {}
+        // Hanya cek key jika device sudah allowed
+        KeyAuthManager.checkDeviceAllowed(androidId, new KeyAuthManager.DeviceCheckCallback() {
+            @Override
+            public void onAllowed() {
+                KeyAuthManager.checkKey(MainActivity.this, new KeyAuthManager.KeyCheckCallback() {
+                    @Override public void onValid() {}
+                    @Override public void onInvalid() { showKeyDialog(false); }
+                    @Override public void onNeedInput() { showKeyDialog(true); }
+                    @Override public void onError(Exception e) {}
+                });
+            }
+            @Override
+            public void onBlocked() { /* Tidak lakukan apa2, tetap blok akses */ }
+            @Override
+            public void onError(Exception e) { }
         });
     }
 
-    // Start polling key secara periodik (tiap 1 menit)
     private void startKeyPolling() {
         if (keyPollingHandler != null && keyPollingRunnable != null) {
             keyPollingHandler.removeCallbacks(keyPollingRunnable);
@@ -83,20 +149,31 @@ public class MainActivity extends AppCompatActivity {
         keyPollingRunnable = new Runnable() {
             @Override
             public void run() {
-                KeyAuthManager.checkKey(MainActivity.this, new KeyAuthManager.KeyCheckCallback() {
+                KeyAuthManager.checkDeviceAllowed(androidId, new KeyAuthManager.DeviceCheckCallback() {
                     @Override
-                    public void onValid() {
-                        // lanjut polling berikutnya
-                        keyPollingHandler.postDelayed(keyPollingRunnable, POLLING_INTERVAL);
+                    public void onAllowed() {
+                        KeyAuthManager.checkKey(MainActivity.this, new KeyAuthManager.KeyCheckCallback() {
+                            @Override
+                            public void onValid() {
+                                keyPollingHandler.postDelayed(keyPollingRunnable, POLLING_INTERVAL);
+                            }
+                            @Override
+                            public void onInvalid() {
+                                showKeyDialog(false);
+                            }
+                            @Override
+                            public void onNeedInput() {
+                                showKeyDialog(true);
+                            }
+                            @Override
+                            public void onError(Exception e) {
+                                keyPollingHandler.postDelayed(keyPollingRunnable, POLLING_INTERVAL);
+                            }
+                        });
                     }
                     @Override
-                    public void onInvalid() {
-                        // Key berubah, paksa input key ulang!
-                        showKeyDialog(false);
-                    }
-                    @Override
-                    public void onNeedInput() {
-                        showKeyDialog(true);
+                    public void onBlocked() {
+                        showBlockedDeviceDialog();
                     }
                     @Override
                     public void onError(Exception e) {
@@ -108,7 +185,6 @@ public class MainActivity extends AppCompatActivity {
         keyPollingHandler.postDelayed(keyPollingRunnable, POLLING_INTERVAL);
     }
 
-    // Dialog input key
     private void showKeyDialog(boolean isFirst) {
         EditText keyInput = new EditText(this);
         keyInput.setHint("Masukkan key...");
@@ -148,11 +224,8 @@ public class MainActivity extends AppCompatActivity {
             .show();
     }
 
-    // Semua kode fitur utama aplikasi tetap di sini, hanya dipanggil setelah key valid
     private void initMainApp() {
-        binding = ActivityMainBinding.inflate(getLayoutInflater());
-        setContentView(binding.getRoot());
-
+        // Sudah panggil setContentView & binding di onCreate!
         sharedPreferences = getSharedPreferences("setting", 0);
         if(sharedPreferences.getBoolean("is_first_time", true)){
             Toasty.Config.getInstance()
@@ -179,6 +252,10 @@ public class MainActivity extends AppCompatActivity {
         if(url != null){
             binding.urlEditText.setText(url);
         }
+
+        binding.masukBtn.setEnabled(true);
+        binding.urlEditText.setEnabled(true);
+        binding.logoView.setEnabled(true);
 
         binding.masukBtn.setOnClickListener((View v) -> {
             String urltv = binding.urlEditText.getText().toString();
